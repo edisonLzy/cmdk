@@ -152,10 +152,11 @@ function formatInput(string) {
   return string.toLowerCase().replace(COUNT_SPACE_REGEXP, ' ')
 }
 
-export function commandScore(string: string, abbreviation: string): number {
+
+export function commandScore(value: string, search: string): number {
   /* NOTE:
    * in the original, we used to do the lower-casing on each recursive call, but this meant that toLowerCase()
    * was the dominating cost in the algorithm, passing both is a little ugly, but considerably faster.
    */
-  return commandScoreInner(string, abbreviation, formatInput(string), formatInput(abbreviation), 0, 0, {})
+  return commandScoreInner(value, search, formatInput(value), formatInput(search), 0, 0, {})
 }

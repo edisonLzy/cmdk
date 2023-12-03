@@ -150,6 +150,7 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
     /** Value of the search query. */
     search: '',
     /** Currently selected item value. */
+    // 当前选中的 item 的 value
     value: props.value ?? props.defaultValue?.toLowerCase() ?? '',
     filtered: {
       /** The count of all visible items. */
@@ -160,9 +161,12 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
       groups: new Set(),
     },
   }))
+  // 记录 Command.Item组件的 id
   const allItems = useLazyRef<Set<string>>(() => new Set()) // [...itemIds]
+  // 记录 Command.Group组件的 id, 以及该组下的所有 Command.Item组件的 id
   const allGroups = useLazyRef<Map<string, Set<string>>>(() => new Map()) // groupId → [...itemIds]
-  const ids = useLazyRef<Map<string, string>>(() => new Map()) // id → value
+  // 记录则 item 对应的value
+  const idToValueMap = useLazyRef<Map<string, string>>(() => new Map()) // id → value
   const listeners = useLazyRef<Set<() => void>>(() => new Set()) // [...rerenders]
   const propsRef = useAsRef(props)
   const { label, children, value, onValueChange, filter, shouldFilter, vimBindings = true, ...etc } = props
@@ -186,6 +190,7 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
   const store: Store = React.useMemo(() => {
     return {
       subscribe: (cb) => {
+        // cb在外部数据源发生变化的时候调用
         listeners.current.add(cb)
         return () => listeners.current.delete(cb)
       },
@@ -195,7 +200,7 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
       setState: (key, value, opts) => {
         if (Object.is(state.current[key], value)) return
         state.current[key] = value
-
+       
         if (key === 'search') {
           // Filter synchronously before emitting back to children
           filterItems()
@@ -217,7 +222,10 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
         // Notify subscribers that state has changed
         store.emit()
       },
+      // store(外部数据源)发生变化 flush all listeners
       emit: () => {
+        // l 是 useExternalStore subscribe function's callback
+        // 也就是 subscribe 函数的参数 cb
         listeners.current.forEach((l) => l())
       },
     }
@@ -227,8 +235,8 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
     () => ({
       // Keep id → value mapping up-to-date
       value: (id, value) => {
-        if (value !== ids.current.get(id)) {
-          ids.current.set(id, value)
+        if (value !== idToValueMap.current.get(id)) {
+          idToValueMap.current.set(id, value)
           state.current.filtered.items.set(id, score(value))
           schedule(2, () => {
             sort()
@@ -249,7 +257,7 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
           }
         }
 
-        // Batch this, multiple items can mount in one pass
+        // Batch this, multiple items can mount in one pass(一次操作)
         // and we should not be filtering/sorting/emitting each time
         schedule(3, () => {
           filterItems()
@@ -264,7 +272,7 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
         })
 
         return () => {
-          ids.current.delete(id)
+          idToValueMap.current.delete(id)
           allItems.current.delete(id)
           state.current.filtered.items.delete(id)
           const selectedItem = getSelectedItem()
@@ -288,7 +296,7 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
         }
 
         return () => {
-          ids.current.delete(id)
+          idToValueMap.current.delete(id)
           allGroups.current.delete(id)
         }
       },
@@ -320,20 +328,20 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
       return
     }
 
-    const scores = state.current.filtered.items
+    const idToScoreMap = state.current.filtered.items
 
     // Sort the groups
-    const groups: [string, number][] = []
+    type MAX_SCORE = number;
+    const groups: [string, MAX_SCORE][] = []
     state.current.filtered.groups.forEach((value) => {
       const items = allGroups.current.get(value)
 
       // Get the maximum score of the group's items
       let max = 0
-      items.forEach((item) => {
-        const score = scores.get(item)
+      items.forEach((id) => {
+        const score = idToScoreMap.get(id)
         max = Math.max(score, max)
       })
-
       groups.push([value, max])
     })
 
@@ -347,7 +355,7 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
       .sort((a, b) => {
         const valueA = a.getAttribute(VALUE_ATTR)
         const valueB = b.getAttribute(VALUE_ATTR)
-        return (scores.get(valueB) ?? 0) - (scores.get(valueA) ?? 0)
+        return (idToScoreMap.get(valueB) ?? 0) - (idToScoreMap.get(valueA) ?? 0)
       })
       .forEach((item) => {
         const group = item.closest(GROUP_ITEMS_SELECTOR)
@@ -363,21 +371,27 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
       .sort((a, b) => b[1] - a[1])
       .forEach((group) => {
         const element = ref.current.querySelector(`${GROUP_SELECTOR}[${VALUE_ATTR}="${group[0]}"]`)
+        //? 这里直接操作DOM ? 
         element?.parentElement.appendChild(element)
       })
   }
 
   function selectFirstItem() {
+    // 找到第一个没有被禁用的 item
     const item = getValidItems().find((item) => !item.ariaDisabled)
     const value = item?.getAttribute(VALUE_ATTR)
     store.setState('value', value || undefined)
   }
 
-  /** Filters the current items. */
+  /** 
+   * 该函数会更新 state.current.filtered.items 
+   * 
+   * Filters the current items.
+   * */
   function filterItems() {
     if (
       !state.current.search ||
-      // Explicitly false, because true | undefined is the default
+      // Explicitly(明确的) false, because true | undefined is the default
       propsRef.current.shouldFilter === false
     ) {
       state.current.filtered.count = allItems.current.size
@@ -391,7 +405,8 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
 
     // Check which items should be included
     for (const id of allItems.current) {
-      const value = ids.current.get(id)
+      const value = idToValueMap.current.get(id)
+      // 使用 value 和 search 计算得分
       const rank = score(value)
       state.current.filtered.items.set(id, rank)
       if (rank > 0) itemCount++
@@ -400,6 +415,7 @@ const Command = React.forwardRef<HTMLDivElement, CommandProps>((props, forwarded
     // Check which groups have at least 1 item shown
     for (const [groupId, group] of allGroups.current) {
       for (const itemId of group) {
+        // 只要有一个item分数 > 0, 就显示该组
         if (state.current.filtered.items.get(itemId) > 0) {
           state.current.filtered.groups.add(groupId)
           break
@@ -604,6 +620,7 @@ const Item = React.forwardRef<HTMLDivElement, ItemProps>((props, forwardedRef) =
   const forceMount = propsRef.current?.forceMount ?? groupContext?.forceMount
 
   useLayoutEffect(() => {
+    // 注册 item
     return context.item(id, groupContext?.id)
   }, [])
 
@@ -612,12 +629,14 @@ const Item = React.forwardRef<HTMLDivElement, ItemProps>((props, forwardedRef) =
   const store = useStore()
   const selected = useCmdk((state) => state.value && state.value === value.current)
   const render = useCmdk((state) =>
+    // state.filtered.items.get(id) 得分 > 0 就显示
     forceMount ? true : context.filter() === false ? true : !state.search ? true : state.filtered.items.get(id) > 0,
   )
 
   React.useEffect(() => {
     const element = ref.current
     if (!element || props.disabled) return
+    // 监听自定事件: 该事件将在 Command的enter事件中派发
     element.addEventListener(SELECT_EVENT, onSelect)
     return () => element.removeEventListener(SELECT_EVENT, onSelect)
   }, [render, props.onSelect, props.disabled])
@@ -660,6 +679,7 @@ const Item = React.forwardRef<HTMLDivElement, ItemProps>((props, forwardedRef) =
  */
 const Group = React.forwardRef<HTMLDivElement, GroupProps>((props, forwardedRef) => {
   const { heading, children, forceMount, ...etc } = props
+  // 用于生成唯一的标识符（ID）
   const id = React.useId()
   const ref = React.useRef<HTMLDivElement>(null)
   const headingRef = React.useRef<HTMLDivElement>(null)
@@ -950,6 +970,7 @@ function mergeRefs<T = any>(refs: Array<React.MutableRefObject<T> | React.Legacy
 }
 
 /** Run a selector against the store state. */
+// useCmdk订阅了外部数据源, 并且在外部数据源发生变化的时候, 执行 selector，从而更新组件
 function useCmdk<T = any>(selector: (state: State) => T) {
   const store = useStore()
   const cb = () => selector(store.snapshot())
@@ -975,11 +996,13 @@ function useValue(
           if (part.current) {
             return part.current.textContent?.trim().toLowerCase()
           }
+          // q:这句代码的意图是 ? 
+          // a:如果 part.current 为 null, 则返回 undefined
           return valueRef.current
         }
       }
     })()
-
+    // 🔥 设置 item 的 value
     context.value(id, value)
     ref.current?.setAttribute(VALUE_ATTR, value)
     valueRef.current = value
@@ -989,6 +1012,7 @@ function useValue(
 }
 
 /** Imperatively run a function on the next layout effect cycle. */
+// 主要功能是在组件的布局阶段执行一些副作用函数
 const useScheduleLayoutEffect = () => {
   const [s, ss] = React.useState<object>()
   const fns = useLazyRef(() => new Map<string | number, () => void>())

@@ -1,0 +1,23 @@
+.demo {
+  
+  [cmdk-input] {
+    // beautiful input
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-size: 14px;
+    color: #333;
+    outline: none;
+    transition: all 0.3s ease-in-out;
+    &:focus {
+      border-color: #666;
+    }
+  }
+
+  [cmdk-list] {
+    height: var(--cmdk-list-height);
+    max-height: 500px;
+    transition: height 100ms ease;
+    background-color: #666;
+  }
+}
